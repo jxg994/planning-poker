@@ -30,6 +30,8 @@ test('real peers join, hide votes, reveal, reset, and handle departures', async 
     await expect(guest.getByRole('heading', { name: 'Planning room' })).toBeVisible();
     await expect(host.locator('.people-list li')).toHaveCount(2);
     await expect(host.locator('.people-list')).toContainText('Sam <script>');
+    await expect(guest.locator('#connection-diagnostics pre')).toContainText('remote-candidate-accepted');
+    await expect(host.locator('#connection-diagnostics pre')).toContainText('remote-candidate-accepted');
 
     await host.getByRole('button', { name: 'Vote 0', exact: true }).click();
     await expect(guest.locator('.status-pill')).toHaveText('1 / 2 voted');
@@ -111,6 +113,10 @@ test('failed direct connections preserve a copyable report on mobile', async ({ 
     await expect(guest.getByRole('alert')).toContainText('The host answered');
     await expect(guest.locator('#connection-diagnostics')).toHaveAttribute('open', '');
     const report = await guest.locator('#connection-diagnostics pre').textContent();
+    const parsed = JSON.parse(report!);
+    expect(parsed.connections[0].remoteCandidateCalls.accepted).toBeGreaterThan(0);
+    expect(parsed.connections[0].everRemoteCandidateTypes.length).toBeGreaterThan(0);
+    expect(parsed.connections[0].history.some((entry: { event: string }) => entry.event === 'remote-candidate-accepted')).toBe(true);
     await guest.clock.fastForward(5_000);
     await expect(guest.locator('#connection-diagnostics pre')).toHaveText(report!);
     await guest.evaluate(() => {

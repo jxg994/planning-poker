@@ -62,6 +62,11 @@ still requires confirmation. Active membership and votes exist only in memory.
   IDs, SDP, credentials, and votes. No diagnostics are uploaded automatically.
   A STUN error alone does not establish total failure if public-facing (`srflx`)
   candidates exist. Zero ICE responses do not distinguish NAT from filtering.
+  Reports also retain candidate types ever observed, the last nonempty pair
+  stats, and up to 100 timestamped events across cleanup. Remote candidate call
+  counters distinguish receipt, browser acceptance, and rejection. Acceptance
+  does not mean reachability. Instrumentation starts at PeerJS's connection
+  event; SDP-embedded candidates do not produce `addIceCandidate` calls.
 - Keep the host's tab open and laptop awake. Leaving, refreshing, or losing the
   host ends the session; there is no host migration or recovery of session state.
   Returning to an ended session link does not recreate it.
