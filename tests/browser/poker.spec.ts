@@ -144,6 +144,33 @@ test('send failures are shown, and dropped subscriptions reconnect and resync', 
   for (const page of [host, guest]) await page.context().close();
 });
 
+test('the host can remove someone who vanished without leaving', async ({ browser }) => {
+  const errors: string[] = [];
+  const host = await open(browser, errors);
+  const guest = await open(browser, errors);
+  const gone = await open(browser, errors);
+  const code = await createRoom(host, 'Alex');
+  await joinByLink(guest, `./#/room/${code}`, 'Sam');
+  await joinByLink(gone, `./#/room/${code}`, 'Taylor');
+  await expect(guest.getByRole('button', { name: /Remove/ })).toHaveCount(0);
+
+  // Going offline first means the leave message on close never arrives.
+  await gone.context().setOffline(true);
+  await gone.context().close();
+  await host.getByRole('button', { name: 'Vote 2', exact: true }).click();
+  await guest.getByRole('button', { name: 'Vote 3', exact: true }).click();
+  await expect(host.locator('.status-pill')).toHaveText('2 / 3 voted');
+  await expect(host.locator('.people-note')).toContainText('Remove them');
+
+  await host.getByRole('button', { name: 'Remove Taylor' }).click();
+  for (const page of [host, guest]) {
+    await expect(page.locator('.people-list li')).toHaveCount(2);
+    await expect(page.locator('.visible-vote')).toHaveText(['2', '3']);
+  }
+  expect(errors).toEqual([]);
+  for (const page of [host, guest]) await page.context().close();
+});
+
 test('fireworks celebrate a reveal where everyone agrees, except with reduced motion', async ({ browser }) => {
   const errors: string[] = [];
   const host = await open(browser, errors);

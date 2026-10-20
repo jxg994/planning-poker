@@ -98,6 +98,8 @@ input::placeholder { color: #9a9aaa; }
 .person-info strong { display: block; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
 .person-info > span { font-size: 10px; color: #9692a3; display: block; margin-top: 3px; }
 .you { font-size: 10px; color: #93909f; font-weight: 400; }
+.remove-person { flex-shrink: 0; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: #a5a0b4; font-size: 16px; line-height: 1; }
+.remove-person:hover { background: #fff0f1; color: #9c3e49; }
 .person-vote { width: 27px; height: 32px; border-radius: 5px; display: grid; place-items: center; color: #a5a0b4; border: 1px dashed #dedce9; font-size: 14px; flex-shrink: 0; }
 .person-vote.voted { background: #eeeafa; color: var(--purple); border: 1px solid #dfd7f8; }
 .person-vote.visible-vote { color: var(--purple); background: #eeeafa; border: 1px solid #dfd7f8; font-weight: 700; }

@@ -70,16 +70,16 @@ POST, using `?cache=no` so ntfy.sh doesn't store them for later delivery.
   state from the host. Because messages aren't cached, missed messages are never
   replayed; the room shows *Reconnecting* until it resyncs. If the host missed a
   vote, the voter's browser sends it again.
-- Idle participants send a heartbeat every 2.5 minutes. The host removes anyone
-  silent for 6 minutes; guests end the room if the host is silent that long.
-  Leaving the room or closing the tab announces the departure immediately when
-  the browser allows it.
+- There are no heartbeats, so an idle room publishes nothing. Leaving the room or
+  closing the tab announces the departure immediately when the browser allows it.
+  Someone who vanishes without that (laptop sleeps, phone locks, network drops)
+  stays at the table; the host can remove them with **×** so the round can
+  reveal. If they're actually still there, their browser rejoins automatically.
 - The host leaving ends the room. There is no host migration or recovery.
 
 Message cost: creating a room publishes nothing. A join costs 2 messages, each
 vote or reset 1, and each reveal 1 more (the host's state). Three people joining and voting once
-publish 8 messages in total. Idle heartbeats add about 24 messages per person per
-hour, which is the largest cost in long sessions.
+publish 8 messages in total. Leaving costs 1, and a host removing someone costs 1.
 
 ## Limitations and privacy
 
@@ -106,8 +106,10 @@ hour, which is the largest cost in long sessions.
 - **Room size.** A room holds up to 20 people, fewer with very long names, so
   state fits in ntfy's 4,096-byte message limit.
 - Keep the host's tab open and the device awake. Sleeping or backgrounded tabs
-  pause timers and may lose the connection. The app resyncs when they return; a
-  guest who was removed in the meantime rejoins automatically.
+  may lose the connection; the app resyncs when they return.
+- **A host that vanishes silently isn't detected.** Guests aren't told the room
+  is gone, rounds can't reveal without the host's vote, and newcomers get
+  "No host answered" after about 20 seconds. Create a new room in that case.
 - Newcomers count toward an unfinished round. If results have already been
   revealed, newcomers wait for the next round. A solo host's vote reveals
   immediately.

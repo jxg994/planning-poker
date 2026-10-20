@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  HEARTBEAT_MS, JOIN_TIMEOUT_MS, MAX_PARTICIPANTS, parseEnvelope, Room, TICK_MS, TIMEOUT_MS,
-} from '../src/room.ts';
+import { JOIN_TIMEOUT_MS, MAX_PARTICIPANTS, parseEnvelope, Room } from '../src/room.ts';
 import type { Clock, RoomCallbacks, Transport, TransportHandlers } from '../src/room.ts';
 import type { Snapshot, Vote } from '../src/state.ts';
 
@@ -334,34 +332,57 @@ test('state replay keeps events that reached a guest before the host\'s state', 
   assert.deepEqual(names(sam.view), ['Alex', 'Sam', 'Late']);
 });
 
-test('silent departures are removed after the timeout, and heartbeat traffic stays small', async () => {
-  const { bus, clock, host, guests: [sam, taylor] } = await setup();
+test('idle rooms publish nothing', async () => {
+  const { bus, clock } = await setup();
+  const before = bus.published.length;
+  await clock.advance(3 * 3_600_000, bus);
+  assert.equal(bus.published.length, before);
+});
+
+test('the host can remove someone who vanished so the round can reveal', async () => {
+  const { bus, host, guests: [sam, taylor] } = await setup();
   await host.room.castVote(3);
   await sam.room.castVote(3);
   await bus.flush();
-  taylor.transport.close(); // vanished without a leave message
+  taylor.transport.close(); // Vanished without a leave message (e.g. laptop slept).
   (taylor.room as unknown as { stopped: boolean }).stopped = true;
+  assert.equal(host.view!.revealed, false);
+  assert.equal(sam.room.removeParticipant(host.room.selfId), false, 'guests cannot remove people');
+  assert.equal(host.room.removeParticipant(host.room.selfId), false, 'the host cannot remove itself');
   const before = bus.published.length;
-  await clock.advance(TIMEOUT_MS + TICK_MS * 2, bus);
+  assert.equal(host.room.removeParticipant(taylor.room.selfId), true);
+  await bus.flush();
+  assert.deepEqual(bus.types().slice(before), ['state'], 'removal costs one message');
   for (const person of [host, sam]) {
     assert.deepEqual(names(person.view), ['Alex', 'Sam']);
     assert.equal(person.view!.revealed, true);
   }
-  assert.match(host.notices.at(-1)!, /Taylor stopped responding/);
-  assert.equal(sam.ended, undefined);
-  const hour = 3_600_000;
-  const start = bus.published.length;
-  await clock.advance(hour, bus);
-  const perHour = bus.published.length - start;
-  assert.ok(perHour <= 2 * Math.ceil(hour / HEARTBEAT_MS) + 2, `idle traffic was ${perHour} messages per hour`);
-  assert.ok(bus.published.length - before > 0);
 });
 
-test('guests end the room when the host goes silent', async () => {
+test('someone removed while still present rejoins and their vote is restored', async () => {
   const { bus, clock, host, guests: [sam] } = await setup(1);
-  host.room.close();
-  await clock.advance(TIMEOUT_MS + TICK_MS + JOIN_TIMEOUT_MS * 3, bus);
-  assert.match(sam.ended!, /host stopped responding/);
+  await sam.room.castVote(8);
+  await bus.flush();
+  await clock.advance(6_000, bus);
+  host.room.removeParticipant(sam.room.selfId);
+  await bus.flush();
+  assert.match(sam.notices.at(-1)!, /removed you/);
+  assert.deepEqual(names(host.view), ['Alex', 'Sam']);
+  assert.equal(host.view!.participants[1].hasVoted, true);
+  assert.equal(sam.ended, undefined);
+});
+
+test('a silently vanished host is not detected and blocks reveal (known limitation)', async () => {
+  const { bus, host, guests: [sam, taylor] } = await setup();
+  host.transport.close();
+  (host.room as unknown as { stopped: boolean }).stopped = true;
+  await sam.room.castVote(5);
+  await taylor.room.castVote(5);
+  await bus.flush();
+  // The vanished host still counts, so the round waits; nobody else can remove them.
+  assert.equal(sam.view!.revealed, false);
+  assert.equal(sam.ended, undefined);
+  assert.equal(taylor.ended, undefined);
 });
 
 test('a second host on the same code is detected', async () => {
@@ -391,15 +412,6 @@ test('rooms refuse joins beyond the participant cap', async () => {
   assert.match(guests.at(-1)!.ended!, /room is full/);
   assert.equal(guests[0].view!.participants.length, MAX_PARTICIPANTS);
   for (const body of bus.published) assert.ok(new TextEncoder().encode(body).length <= 4_096);
-});
-
-test('a backgrounded tab whose timers paused resyncs rather than dropping everyone', async () => {
-  const { bus, clock, host, guests: [sam] } = await setup(1);
-  clock.time += TIMEOUT_MS * 2; // Timers frozen, then resumed.
-  await clock.advance(TICK_MS, bus);
-  assert.deepEqual(names(host.view), ['Alex', 'Sam']);
-  assert.equal(sam.ended, undefined);
-  assert.equal(host.ended, undefined);
 });
 
 test('malformed or foreign messages on the topic are ignored', () => {

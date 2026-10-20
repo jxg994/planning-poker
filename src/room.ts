@@ -55,16 +55,12 @@ type Body =
 
 export type Envelope = Body & { v: 1; from: string; seq: number };
 
-export const HEARTBEAT_MS = 150_000;
-export const TIMEOUT_MS = 360_000;
 export const JOIN_TIMEOUT_MS = 10_000;
 export const JOIN_ATTEMPTS = 2;
 export const CONNECT_TIMEOUT_MS = 20_000;
-export const TICK_MS = 10_000;
 export const MAX_PARTICIPANTS = 20;
 // ntfy.sh turns messages over 4,096 bytes into attachments.
 export const MAX_MESSAGE_BYTES = 4_000;
-const SUSPEND_MS = 120_000;
 const RESYNC_COOLDOWN_MS = 30_000;
 const GAP_RESYNC_DELAY_MS = 3_000;
 const REPLAY_WINDOW_MS = 30_000;
@@ -128,8 +124,9 @@ interface Logged { envelope: Envelope; at: number }
 /**
  * One participant's view of a room. Every client applies the same ordered event stream
  * (join/vote/reset/leave) to its own copy of the session. The host publishes full state
- * when someone joins or reconnects, when votes are revealed, and when it removes
- * unresponsive participants, so clients converge even if they missed messages.
+ * when someone joins or reconnects, when votes are revealed, and when it removes a
+ * participant, so clients converge even if they missed messages. There are no
+ * heartbeats: an idle room publishes nothing.
  */
 export class Room {
   readonly selfId = createClientId();
@@ -145,9 +142,6 @@ export class Room {
   private lastSeq = new Map<string, number>();
   private log: Logged[] = [];
   private lastSeen = new Map<string, number>();
-  private hostLastSeen = 0;
-  private awaitingHostSince = 0;
-  private lastPublish = 0;
   private lastResync = -Infinity;
   private lastHostResync = -Infinity;
   private intent?: { round: number; value: Vote; at: number };
@@ -158,8 +152,6 @@ export class Room {
   private joinTimer?: unknown;
   private connectTimer?: unknown;
   private gapTimer?: unknown;
-  private tickTimer?: unknown;
-  private lastTick: number;
 
   constructor(options: RoomOptions) {
     this.code = options.code;
@@ -168,7 +160,6 @@ export class Room {
     this.transport = options.transport;
     this.callbacks = options.callbacks;
     this.clock = options.clock ?? realClock;
-    this.lastTick = this.clock.now();
     if (this.isHost) {
       this.hostId = this.selfId;
       this.session = createSession(this.selfId, this.name);
@@ -176,7 +167,6 @@ export class Room {
     this.connectTimer = this.clock.setTimeout(() => this.end(
       'Could not connect to ntfy.sh within 20 seconds. Check your connection, or whether a network filter blocks ntfy.sh, and try again.',
     ), CONNECT_TIMEOUT_MS);
-    this.scheduleTick();
     this.transport.connect({
       onReady: () => this.ready(),
       onMessage: (text) => this.receive(text),
@@ -197,6 +187,19 @@ export class Room {
     return this.publish({ t: 'reset', round: this.session.round });
   }
 
+  /**
+   * Host only: removes someone who left without saying goodbye (e.g. their laptop slept),
+   * so the round can reveal. If they are actually still here, their browser rejoins.
+   */
+  removeParticipant(id: string): boolean {
+    if (!this.isHost || !this.session || this.stopped || id === this.selfId ||
+        !this.session.participants.some((person) => person.id === id)) return false;
+    leave(this.session, id);
+    this.publishState();
+    this.emit();
+    return true;
+  }
+
   /** Announces departure (best effort, survives page unload) and stops. */
   leave(): void {
     if (this.stopped) return;
@@ -206,7 +209,7 @@ export class Room {
 
   close(): void {
     this.stopped = true;
-    for (const timer of [this.joinTimer, this.connectTimer, this.gapTimer, this.tickTimer]) {
+    for (const timer of [this.joinTimer, this.connectTimer, this.gapTimer]) {
       if (timer !== undefined) this.clock.clearTimeout(timer);
     }
     this.transport.close();
@@ -224,10 +227,8 @@ export class Room {
         this.callbacks.onReady();
         this.emit();
       } else {
-        // Messages may have been missed while disconnected: give guests a grace period and
-        // publish state so they can detect and re-send anything the host did not receive.
-        const now = this.clock.now();
-        for (const person of this.session!.participants) this.lastSeen.set(person.id, now);
+        // Messages may have been missed while disconnected: publish state so guests can
+        // detect and re-send anything the host did not receive.
         this.publishState();
       }
     } else if (!reconnect) {
@@ -264,7 +265,6 @@ export class Room {
     if (this.stopped && !keepalive) return false;
     const seq = ++this.seq;
     const text = JSON.stringify({ v: 1, from: this.selfId, seq, ...body });
-    this.lastPublish = this.clock.now();
     try {
       await this.transport.publish(text, keepalive ? { keepalive } : undefined);
       return true;
@@ -300,10 +300,6 @@ export class Room {
     this.log.push({ envelope, at: now });
     if (this.log.length > LOG_LIMIT) this.log.shift();
     this.lastSeen.set(envelope.from, now);
-    if (envelope.from === this.hostId) {
-      this.hostLastSeen = now;
-      this.awaitingHostSince = 0;
-    }
     if (last !== undefined && envelope.seq > last + 1 && envelope.from !== this.selfId) this.gap();
 
     if (this.isHost) this.hostReceive(envelope);
@@ -406,8 +402,6 @@ export class Room {
     const now = this.clock.now();
     const firstJoin = !this.joined;
     this.hostId = envelope.session.hostId;
-    this.hostLastSeen = now;
-    this.awaitingHostSince = 0;
     if (this.gapTimer !== undefined) {
       this.clock.clearTimeout(this.gapTimer);
       this.gapTimer = undefined;
@@ -429,8 +423,8 @@ export class Room {
     const me = this.session.participants.find((person) => person.id === this.selfId);
     const hostCopy = envelope.session.participants.find((person) => person.id === this.selfId);
     if (!me) {
-      this.callbacks.onNotice('The host lost track of you. Rejoining...');
-      this.resync();
+      this.callbacks.onNotice('The host removed you from the table. Rejoining...');
+      this.resync(true);
     } else if (this.intent && !envelope.session.revealed && this.intent.round === envelope.session.round &&
                hostCopy?.vote !== this.intent.value && now - this.intent.at > VOTE_REPAIR_AFTER_MS) {
       // The host's state lacks our vote (sent long enough ago to have arrived), so it was missed.
@@ -454,50 +448,6 @@ export class Room {
     const me = this.session.participants.find((person) => person.id === this.selfId);
     if (!me) return;
     this.callbacks.onState(snapshot(this.session), me.vote);
-  }
-
-  private scheduleTick(): void {
-    this.tickTimer = this.clock.setTimeout(() => {
-      this.tick();
-      if (!this.stopped) this.scheduleTick();
-    }, TICK_MS);
-  }
-
-  private tick(): void {
-    if (this.stopped || !this.joined || !this.session) return;
-    const now = this.clock.now();
-    const suspended = now - this.lastTick > SUSPEND_MS;
-    this.lastTick = now;
-    if (this.isHost) {
-      if (suspended) {
-        // Timers were paused (sleep/background), so missing heartbeats are not evidence of departure.
-        for (const person of this.session.participants) this.lastSeen.set(person.id, now);
-        this.publishState();
-        return;
-      }
-      const stale = this.session.participants.filter((person) =>
-        person.id !== this.selfId && now - (this.lastSeen.get(person.id) ?? now) > TIMEOUT_MS);
-      if (stale.length) {
-        stale.forEach((person) => leave(this.session!, person.id));
-        this.callbacks.onNotice(`${stale.map((person) => person.name).join(', ')} stopped responding and left the table.`);
-        this.publishState();
-        this.emit();
-        return;
-      }
-    } else if (suspended) {
-      this.hostLastSeen = now;
-      this.resync(true);
-      return;
-    } else if (now - this.hostLastSeen > TIMEOUT_MS) {
-      if (!this.awaitingHostSince) {
-        this.awaitingHostSince = now;
-        this.resync(true);
-      } else if (now - this.awaitingHostSince > JOIN_TIMEOUT_MS * 2) {
-        this.end('The host stopped responding, so this room has ended. You can create a new room from the home page.');
-      }
-      return;
-    }
-    if (now - this.lastPublish >= HEARTBEAT_MS) void this.publish({ t: 'ping' });
   }
 
   private end(message: string): void {

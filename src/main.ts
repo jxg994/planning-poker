@@ -269,12 +269,16 @@ function renderRoom(): void {
               <span class="avatar avatar-${index % 4}" aria-hidden="true">${escape(person.name.charAt(0).toUpperCase())}</span>
               <div class="person-info"><strong>${escape(person.name)}${person.id === room!.selfId ? ' <span class="you">(you)</span>' : ''}</strong>
                 <span>${person.id === state!.hostId ? 'Host' : 'Participant'}</span></div>
+              ${room!.isHost && person.id !== room!.selfId ? `<button class="remove-person" data-remove="${person.id}"
+                aria-label="Remove ${escape(person.name)}" title="Remove from the table">×</button>` : ''}
               <span class="person-vote ${state!.revealed ? 'visible-vote' : person.hasVoted ? 'voted' : ''}"
                 aria-label="${state!.revealed ? person.vote === null ? 'Joining next round' : `Voted ${person.vote}` : person.hasVoted ? 'Has voted' : 'Not voted'}">
                 ${state!.revealed ? person.vote ?? '—' : person.hasVoted ? '✓' : '…'}</span>
             </li>`).join('')}
           </ul>
-          <p class="people-note">${state.revealed ? 'A fresh round clears every card.' : 'No spoilers. Estimates stay hidden until everyone is ready.'}</p>
+          <p class="people-note">${state.revealed ? 'A fresh round clears every card.'
+            : room.isHost && state.participants.length > 1 ? 'Waiting on someone who left without leaving the room? Remove them with ×.'
+            : 'No spoilers. Estimates stay hidden until everyone is ready.'}</p>
         </aside>
       </div>
     </section>`, `
@@ -291,6 +295,12 @@ function renderRoom(): void {
       sendError = '';
       void room?.castVote(value);
       render();
+    });
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((button) => {
+    button.addEventListener('click', () => {
+      sendError = '';
+      room?.removeParticipant(button.dataset.remove!);
     });
   });
   document.querySelector('#reset')?.addEventListener('click', () => {
