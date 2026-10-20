@@ -1,7 +1,8 @@
 import './style.css';
+import { launchFireworks } from './fireworks.ts';
 import { NtfyTransport, ntfyUrl, topicFor } from './ntfy.ts';
 import { Room } from './room.ts';
-import { createRoomCode, isName, isRoomCode, normalizeRoomCode, OPTIONS } from './state.ts';
+import { createRoomCode, isConsensus, isName, isRoomCode, normalizeRoomCode, OPTIONS } from './state.ts';
 import type { Snapshot, Vote } from './state.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -168,6 +169,9 @@ function start(name: string, code: string, host: boolean): void {
         saveStorage('poker.room', code);
       },
       onState: (next, mine) => {
+        // Celebrate only a reveal seen live, not the first state of someone joining a revealed round.
+        const justRevealed = state !== undefined && next.revealed && !(state.revealed && state.round === next.round);
+        if (justRevealed && isConsensus(next)) launchFireworks();
         if (next.round !== state?.round) pending = null;
         if (mine !== null && mine === pending) pending = null;
         state = next;
@@ -214,7 +218,8 @@ function renderRoom(): void {
   const average = resultVotes.length
     ? (resultVotes.reduce<number>((sum, value) => sum + value, 0) / resultVotes.length).toFixed(1)
     : '—';
-  const status = state.revealed ? 'Cards on the table' : 'Make your estimate';
+  const consensus = isConsensus(state);
+  const status = consensus ? 'Everyone agrees!' : state.revealed ? 'Cards on the table' : 'Make your estimate';
   document.title = `Round ${state.round} | Room ${room.code} | Planning Poker`;
   shell(`
     <section class="session">
@@ -236,7 +241,7 @@ function renderRoom(): void {
             <span class="status-pill ${state.revealed ? 'revealed' : ''}">${state.revealed ? 'Revealed' : `${voted} / ${state.participants.length} voted`}</span>
           </div>
           <h2 id="voting-title">${status}</h2>
-          <p class="muted">${state.revealed
+          <p class="muted">${consensus ? 'Same card all around. On to the next one.' : state.revealed
             ? 'Different numbers? That’s where the conversation starts.'
             : 'How much effort will it take? Choose a card below.'}</p>
           <div class="vote-options" role="group" aria-label="Your estimate">

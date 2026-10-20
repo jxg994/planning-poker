@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CODE_ALPHABET, CODE_LENGTH, cloneSession, createRoomCode, createSession, isClientId, isName,
+  CODE_ALPHABET, CODE_LENGTH, cloneSession, createRoomCode, createSession, isClientId, isConsensus, isName,
   isRoomCode, isSession, join, leave, normalizeRoomCode, OPTIONS, reset, snapshot, vote,
 } from '../src/state.ts';
 
@@ -131,4 +131,24 @@ test('room codes are 5 unambiguous characters and typed codes are normalized', (
   assert.equal(isRoomCode('ABCD0'), false);
   assert.equal(isRoomCode('ABCD'), false);
   assert.equal(isRoomCode('abcd7'), false);
+});
+
+test('consensus needs a reveal with at least two identical votes; late joiners are ignored', () => {
+  const session = room();
+  vote(session, 'host', 1, 5);
+  assert.equal(isConsensus(snapshot(session)), false);
+  vote(session, 'guest', 1, 5);
+  assert.equal(isConsensus(snapshot(session)), true);
+  join(session, 'late', 'Jo');
+  assert.equal(isConsensus(snapshot(session)), true);
+
+  const split = room();
+  vote(split, 'host', 1, 0);
+  vote(split, 'guest', 1, 8);
+  assert.equal(isConsensus(snapshot(split)), false);
+
+  const solo = createSession('host', 'Alex');
+  vote(solo, 'host', 1, 3);
+  assert.equal(solo.revealed, true);
+  assert.equal(isConsensus(snapshot(solo)), false);
 });

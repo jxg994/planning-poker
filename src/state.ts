@@ -107,6 +107,12 @@ export function reset(session: Session, round: number): boolean {
   return true;
 }
 
+/** True when a revealed round has at least two votes and they are all the same. */
+export function isConsensus(view: Snapshot): boolean {
+  const votes = view.participants.flatMap((person) => person.vote === null ? [] : [person.vote]);
+  return view.revealed && votes.length >= 2 && votes.every((value) => value === votes[0]);
+}
+
 export function cloneSession(session: Session): Session {
   return { ...session, participants: session.participants.map((person) => ({ ...person })) };
 }

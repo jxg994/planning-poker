@@ -144,6 +144,38 @@ test('send failures are shown, and dropped subscriptions reconnect and resync', 
   for (const page of [host, guest]) await page.context().close();
 });
 
+test('fireworks celebrate a reveal where everyone agrees, except with reduced motion', async ({ browser }) => {
+  const errors: string[] = [];
+  const host = await open(browser, errors);
+  const guest = await open(browser, errors, { reducedMotion: 'reduce' });
+  const code = await createRoom(host, 'Alex');
+  await joinByLink(guest, `./#/room/${code}`, 'Sam');
+
+  await host.getByRole('button', { name: 'Vote 3', exact: true }).click();
+  await guest.getByRole('button', { name: 'Vote 5', exact: true }).click();
+  await expect(host.getByRole('heading', { name: 'Cards on the table' })).toBeVisible();
+  await expect(host.locator('canvas.fireworks')).toHaveCount(0);
+
+  await guest.getByRole('button', { name: 'Start next round' }).click();
+  await expect(host.locator('.round-label')).toHaveText('ROUND 2');
+  await host.getByRole('button', { name: 'Vote 8', exact: true }).click();
+  await guest.getByRole('button', { name: 'Vote 8', exact: true }).click();
+  for (const page of [host, guest]) await expect(page.getByRole('heading', { name: 'Everyone agrees!' })).toBeVisible();
+  await expect(host.locator('canvas.fireworks')).toBeAttached();
+  await expect(guest.locator('canvas.fireworks')).toHaveCount(0);
+  // The overlay doesn't block clicks and removes itself.
+  await host.getByRole('button', { name: 'Copy link' }).click();
+  await expect(host.locator('canvas.fireworks')).toHaveCount(0, { timeout: 10_000 });
+
+  // Someone joining after the reveal sees the result but no replayed celebration.
+  const late = await open(browser, errors);
+  await joinByLink(late, `./#/room/${code}`, 'Jo');
+  await expect(late.getByRole('heading', { name: 'Everyone agrees!' })).toBeVisible();
+  await expect(late.locator('canvas.fireworks')).toHaveCount(0);
+  expect(errors).toEqual([]);
+  for (const page of [host, guest, late]) await page.context().close();
+});
+
 test('bad links, obsolete links, and rooms without a host give actionable errors', async ({ browser }) => {
   const errors: string[] = [];
   const page = await open(browser, errors, { viewport: { width: 375, height: 812 } });
