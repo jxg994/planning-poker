@@ -11,6 +11,7 @@ let selected: Vote | null = null;
 let connecting = false;
 let failure = '';
 let notice = '';
+let diagnostics = '';
 let storageWarning = '';
 let savedName = readStorage('poker.name');
 let lastSession = readStorage('poker.session');
@@ -58,8 +59,34 @@ function shell(content: string): void {
       </a>
       <span class="prototype-badge">PEER-TO-PEER PROTOTYPE</span>
     </header>
-    <main>${storageWarning ? `<p class="banner warning" role="status">${escape(storageWarning)}</p>` : ''}${content}</main>
+    <main>${storageWarning ? `<p class="banner warning" role="status">${escape(storageWarning)}</p>` : ''}${content}
+      <details id="connection-diagnostics" class="connection-diagnostics" ${failure ? 'open' : ''} ${diagnostics ? '' : 'hidden'}>
+        <summary>Connection diagnostics</summary>
+        <p>No IP addresses, names, session IDs, or votes are included. Copy the report from each device after a failed attempt.</p>
+        <button id="copy-diagnostics" class="button secondary small">Copy diagnostics</button>
+        <span id="diagnostics-copy-status" role="status"></span>
+        <pre tabindex="0" aria-label="Connection diagnostics report"></pre>
+      </details>
+    </main>
     <footer>Small cards. Shared understanding.<span>Powered by WebRTC &amp; PeerJS</span></footer>`;
+  updateDiagnostics();
+  document.querySelector('#copy-diagnostics')?.addEventListener('click', async () => {
+    const status = document.querySelector('#diagnostics-copy-status')!;
+    try {
+      await navigator.clipboard.writeText(diagnostics);
+      status.textContent = 'Copied.';
+    } catch (error) {
+      console.warn('Could not copy diagnostics:', error);
+      status.textContent = 'Could not copy automatically. Select the report below, or take a screenshot.';
+    }
+  });
+}
+
+function updateDiagnostics(): void {
+  const panel = document.querySelector<HTMLDetailsElement>('#connection-diagnostics');
+  if (!panel) return;
+  panel.hidden = !diagnostics;
+  panel.querySelector('pre')!.textContent = diagnostics;
 }
 
 function render(): void {
@@ -124,9 +151,14 @@ function start(name: string, hostId: string | null): void {
   network?.close();
   failure = '';
   notice = '';
+  diagnostics = '';
   connecting = true;
   render();
   network = new PokerNetwork(name, hostId, {
+    onDiagnostics: (text) => {
+      diagnostics = text;
+      updateDiagnostics();
+    },
     onReady: (id, peerId) => {
       selfId = peerId;
       connecting = false;
@@ -254,6 +286,7 @@ window.addEventListener('hashchange', () => {
   connecting = false;
   failure = '';
   notice = '';
+  diagnostics = '';
   render();
 });
 window.addEventListener('pagehide', () => network?.close());

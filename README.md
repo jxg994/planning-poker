@@ -54,6 +54,14 @@ still requires confirmation. Active membership and votes exist only in memory.
   membership, voted/not-voted status, and revealed results to everyone.
 - No TURN relay is configured. Some corporate networks, VPNs, firewalls, or NAT
   combinations will prevent connections. Failures/timeouts appear in the UI.
+- Expand **Connection diagnostics** below the page to inspect signaling,
+  offer/answer presence, ICE and data-channel states, candidate types, STUN
+  error codes, and connectivity requests/responses. On failure the panel opens
+  automatically and preserves its last samples. Use **Copy diagnostics** on
+  both devices, or take screenshots. Reports exclude addresses, names, session
+  IDs, SDP, credentials, and votes. No diagnostics are uploaded automatically.
+  A STUN error alone does not establish total failure if public-facing (`srflx`)
+  candidates exist. Zero ICE responses do not distinguish NAT from filtering.
 - Keep the host's tab open and laptop awake. Leaving, refreshing, or losing the
   host ends the session; there is no host migration or recovery of session state.
   Returning to an ended session link does not recreate it.

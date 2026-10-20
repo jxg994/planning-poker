@@ -5,12 +5,14 @@ import {
   join, leave, reset, snapshot, vote,
 } from './state.ts';
 import type { Session, Snapshot, Vote } from './state.ts';
+import { ConnectionDiagnostics } from './diagnostics.ts';
 
 interface Callbacks {
   onReady: (hostId: string, selfId: string) => void;
   onState: (state: Snapshot) => void;
   onNotice: (message: string) => void;
   onEnd: (message: string) => void;
+  onDiagnostics: (text: string) => void;
 }
 
 interface Guest {
@@ -33,6 +35,8 @@ export class PokerNetwork {
   private stopped = false;
   private ready = false;
   private current?: Snapshot;
+  private diagnostics: ConnectionDiagnostics;
+  private connectionCount = 0;
   selfId = '';
 
   constructor(
@@ -40,12 +44,17 @@ export class PokerNetwork {
     private hostId: string | null,
     private callbacks: Callbacks,
   ) {
+    this.diagnostics = new ConnectionDiagnostics(callbacks.onDiagnostics);
     // Use STUN only: no TURN relay or application server carries votes.
     this.peer = new Peer({
       config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
     });
     this.deadline = setTimeout(() => {
-      this.end('Could not connect within 30 seconds. The host may have left, or your network may block WebRTC. Try again.');
+      this.end(this.hostConnection?.peerConnection?.remoteDescription
+        ? 'The host answered, but the direct connection did not finish within 30 seconds. See connection diagnostics below.'
+        : this.selfId
+          ? 'Connected to PeerJS, but did not receive a session from the host within 30 seconds. See connection diagnostics below.'
+          : 'Could not reach PeerJS signaling within 30 seconds. See connection diagnostics below.');
     }, TIMEOUT_MS);
     this.timer = setInterval(() => this.heartbeat(), HEARTBEAT_MS);
     this.peer.on('open', (id) => this.open(id));
@@ -53,6 +62,7 @@ export class PokerNetwork {
     this.peer.on('error', (error) => {
       if (this.stopped) return;
       console.error('PeerJS error:', error);
+      this.diagnostics.setSignaling(`PeerJS error: ${error.type}`);
       if (error.type === 'peer-unavailable' && this.ready && this.session) {
         this.callbacks.onNotice('A participant could not be reached. They can try joining again.');
       } else if (this.ready && (error.type === 'network' || error.type === 'socket-error' ||
@@ -66,6 +76,7 @@ export class PokerNetwork {
     });
     this.peer.on('disconnected', () => {
       if (!this.stopped) {
+        this.diagnostics.setSignaling('Disconnected from PeerJS; reconnecting');
         this.callbacks.onNotice('Disconnected from the signaling service. Reconnecting...');
         this.peer.reconnect();
       }
@@ -77,6 +88,7 @@ export class PokerNetwork {
 
   private open(id: string): void {
     if (this.stopped) return;
+    this.diagnostics.setSignaling('Connected to PeerJS; peer ID assigned');
     if (this.selfId) {
       this.callbacks.onNotice('Signaling connection restored.');
       return;
@@ -90,14 +102,25 @@ export class PokerNetwork {
     } else {
       const connection = this.peer.connect(this.hostId, { reliable: true, serialization: 'json' });
       this.hostConnection = connection;
+      this.observe(connection, 'Connection to host');
       connection.on('open', () => this.send(connection, { type: 'join', name: this.name }));
       connection.on('data', (data: unknown) => this.receiveFromHost(data));
-      connection.on('close', () => this.end('The host disconnected. This session has ended. You can create a new session from the home page.'));
+      connection.on('close', () => this.end(this.ready
+        ? 'The host disconnected. This session has ended. You can create a new session from the home page.'
+        : 'The connection closed before joining. See connection diagnostics below; this does not establish that the host left.'));
       connection.on('error', (error) => {
         console.error('Host connection error:', error);
-        this.end('Connection to the host failed. Your network may block WebRTC. Try again or ask for a new session link.');
+        this.end('Connection to the host failed. See connection diagnostics below before retrying.');
       });
     }
+  }
+
+  private observe(connection: DataConnection, label: string): void {
+    this.diagnostics.watch(
+      connection.peerConnection,
+      () => connection.dataChannel?.readyState ?? 'not created',
+      label,
+    );
   }
 
   private connected(): void {
@@ -112,6 +135,7 @@ export class PokerNetwork {
       return;
     }
     const guest: Guest = { connection, joined: false, lastSeen: Date.now() };
+    this.observe(connection, `Participant connection ${++this.connectionCount}`);
     this.guests.set(connection.peer, guest);
     connection.on('data', (data: unknown) => {
       if (this.stopped || !this.session || !isRecord(data)) {
@@ -230,6 +254,7 @@ export class PokerNetwork {
 
   close(): void {
     this.stopped = true;
+    this.diagnostics.stop();
     clearTimeout(this.deadline);
     clearInterval(this.timer);
     this.peer.destroy();
