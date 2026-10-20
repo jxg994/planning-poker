@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  createSession, isName, isPeerId, isSnapshot, join, leave, OPTIONS, reset, snapshot, vote,
+  CODE_ALPHABET, CODE_LENGTH, cloneSession, createRoomCode, createSession, isClientId, isName,
+  isRoomCode, isSession, join, leave, normalizeRoomCode, OPTIONS, reset, snapshot, vote,
 } from '../src/state.ts';
 
 function room() {
@@ -74,7 +75,7 @@ test('joining after reveal preserves results and includes the newcomer in the ne
   join(session, 'third', 'Taylor');
   assert.equal(session.revealed, true);
   assert.equal(vote(session, 'third', 1, 5), false);
-  assert.equal(isSnapshot(snapshot(session)), true);
+  assert.equal(isSession(session), true);
   reset(session, 1);
   assert.equal(vote(session, 'third', 2, 5), true);
 });
@@ -100,16 +101,34 @@ test('snapshots do not reference mutable host state', () => {
   assert.equal(session.participants[0].name, 'Alex');
 });
 
-test('names, peer IDs, and network snapshots are validated', () => {
+test('names, client IDs, and shared session state are validated', () => {
   assert.equal(isName('   '), false);
   assert.equal(isName('a'.repeat(41)), false);
-  assert.equal(isPeerId('../bad-id'), false);
-  assert.equal(isPeerId('peer-123_abc'), true);
-  const valid = snapshot(room());
-  assert.equal(isSnapshot(valid), true);
-  assert.equal(isSnapshot({ ...valid, round: 0 }), false);
-  assert.equal(isSnapshot({ ...valid, participants: [] }), false);
-  assert.equal(isSnapshot({ ...valid, participants: [valid.participants[0], valid.participants[0]] }), false);
-  assert.equal(isSnapshot({ ...valid, participants: [{ ...valid.participants[0], vote: 5 }] }), false);
-  assert.equal(isSnapshot({ ...valid, hostId: 'missing' }), false);
+  assert.equal(isClientId('../bad-id'), false);
+  assert.equal(isClientId('abc123def456'), true);
+  const valid = cloneSession(room());
+  assert.equal(isSession(valid), true);
+  assert.equal(isSession({ ...valid, round: 0 }), false);
+  assert.equal(isSession({ ...valid, participants: [] }), false);
+  assert.equal(isSession({ ...valid, participants: [valid.participants[0], valid.participants[0]] }), false);
+  assert.equal(isSession({ ...valid, participants: [{ ...valid.participants[0], vote: 4 }] }), false);
+  assert.equal(isSession({ ...valid, hostId: 'missing' }), false);
+  // Unrevealed state with every vote in is impossible under the reveal rule.
+  assert.equal(isSession({ ...valid, participants: valid.participants.map((person) => ({ ...person, vote: 3 })) }), false);
+  const partly = cloneSession(valid);
+  partly.participants[0].vote = 5;
+  assert.equal(isSession(partly), true);
+});
+
+test('room codes are 5 unambiguous characters and typed codes are normalized', () => {
+  assert.equal(CODE_LENGTH, 5);
+  for (const character of '01IOL') assert.equal(CODE_ALPHABET.includes(character), false);
+  const codes = new Set(Array.from({ length: 200 }, () => createRoomCode()));
+  assert.ok(codes.size > 190);
+  for (const code of codes) assert.equal(isRoomCode(code), true);
+  assert.equal(normalizeRoomCode(' ab-c d7 '), 'ABCD7');
+  assert.equal(isRoomCode('ABCD7'), true);
+  assert.equal(isRoomCode('ABCD0'), false);
+  assert.equal(isRoomCode('ABCD'), false);
+  assert.equal(isRoomCode('abcd7'), false);
 });

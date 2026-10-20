@@ -1,7 +1,8 @@
 # Planning Poker
 
-A static, two-page planning poker prototype. Vite bundles TypeScript and PeerJS;
-there is no application server or database.
+A static planning poker prototype. Vite bundles the TypeScript app; browsers
+exchange messages through the free public [ntfy.sh](https://ntfy.sh) service.
+There is no application server, database, account, or API key.
 
 ## Run locally
 
@@ -12,75 +13,100 @@ npm ci
 npm run dev
 ```
 
-Open the printed URL (normally `http://127.0.0.1:5173/planning-poker/`).
-Use separate tabs or devices to try a shared session. Another device must be able
-to reach the frontend; the deployed HTTPS site is the simplest way to test that.
+Open the printed URL (normally `http://127.0.0.1:5173/planning-poker/`). Use
+separate browsers, private windows, or devices to try a shared room; a local
+dev server talks to the real ntfy.sh.
 
 ```sh
-npm test
-npm run build
+npm test            # state and room-protocol tests (Node, no network)
+npm run build       # type-check and build dist/
 npm run preview
 ```
 
-For the optional end-to-end checks, install Google Chrome and run
-`npm run test:browser`. These use real WebRTC peers in separate browser contexts
-and require access to the public PeerJS signaling and Google STUN services.
-They are not part of the deployment workflow, since network policies and public
-service availability can prevent peer connections. The test browser grants
-fake microphone access to expose reachable local ICE candidates without mDNS
-discovery. No real microphone is used; the application itself never requests
-microphone access or changes browser privacy settings. These checks verify
-the protocol, not connectivity across every network/browser combination.
+`npm run test:browser` runs Playwright end-to-end tests in Google Chrome against
+a local ntfy stand-in (`tests/support/fake-ntfy.ts`), so they don't use the
+public service. They cover creating and joining rooms, hidden votes, reveal,
+reset, late joins, departures, send failures, reconnects, and a phone viewport.
+One optional smoke test uses the real ntfy.sh (about 6 messages per run):
+
+```sh
+NTFY_LIVE=1 npx playwright test live-ntfy
+```
 
 ## How to use
 
-1. Enter a name on the home page and create a session. Its creator is the host.
-2. Copy the session link and share it. Visitors enter their names to join.
+1. Enter a name and select **Create a room**. Its creator is the host.
+2. Share the five-character room code (for example `K7QXM`) or the room link.
+   Teammates type the code on the home page, or open the link and enter a name.
 3. Choose from **0, 1, 2, 3, 5, 8, 13, 21**. You can change your vote before reveal.
-4. When every connected participant has voted, results reveal automatically.
-5. Anyone can select **Start next round** to reset all votes.
+4. When every participant at the table has voted, results reveal automatically.
+5. Anyone can select **Start next round** to clear all votes.
 
-Session URLs use `#/planning-poker/:id`, where `:id` is the host's PeerJS ID.
-Hash routing lets shared links load directly on GitHub Pages without a fallback
-server. Names and the last session ID are remembered in local storage; joining
-still requires confirmation. Active membership and votes exist only in memory.
+Room links use `#/room/:code`, so shared links load directly on GitHub Pages
+without a fallback server. Codes are case-insensitive and avoid look-alike
+characters (no 0/O, 1/I/L). Your name and last room code are remembered in local
+storage; joining still requires confirmation. Room state exists only in the
+participants' browser memory.
 
-## Networking and limitations
+## How it works
 
-- Browsers contact **PeerJS's public PeerServer** for discovery/signaling.
-  The app explicitly configures Google's **STUN service**. This is not
-  a zero-third-party-service app. The PeerJS library itself is bundled locally.
-- Each participant has a WebRTC data channel to the host. The host distributes
-  membership, voted/not-voted status, and revealed results to everyone.
-- No TURN relay is configured. Some corporate networks, VPNs, firewalls, or NAT
-  combinations will prevent connections. Failures/timeouts appear in the UI.
-- Expand **Connection diagnostics** below the page to inspect signaling,
-  offer/answer presence, ICE and data-channel states, candidate types, STUN
-  error codes, and connectivity requests/responses. On failure the panel opens
-  automatically and preserves its last samples. Use **Copy diagnostics** on
-  both devices, or take screenshots. Reports exclude addresses, names, session
-  IDs, SDP, credentials, and votes. No diagnostics are uploaded automatically.
-  A STUN error alone does not establish total failure if public-facing (`srflx`)
-  candidates exist. Zero ICE responses do not distinguish NAT from filtering.
-  Reports also retain candidate types ever observed, the last nonempty pair
-  stats, and up to 100 timestamped events across cleanup. Remote candidate call
-  counters distinguish receipt, browser acceptance, and rejection. Acceptance
-  does not mean reachability. Instrumentation starts at PeerJS's connection
-  event; SDP-embedded candidates do not produce `addIceCandidate` calls.
-- Keep the host's tab open and laptop awake. Leaving, refreshing, or losing the
-  host ends the session; there is no host migration or recovery of session state.
-  Returning to an ended session link does not recreate it.
-- Departures are detected by connection-close events and a 5-second heartbeat
-  with a 30-second timeout. Sleeping/backgrounded browsers may be disconnected;
-  timer throttling can delay detection. A disconnected guest can join again.
+Each room is one ntfy topic, `jxg994-planning-poker-<CODE>`. Every browser
+subscribes with Server-Sent Events and publishes small JSON messages with HTTPS
+POST, using `?cache=no` so ntfy.sh doesn't store them for later delivery.
+
+- A joiner waits until ntfy confirms the subscription, then posts `join`. The
+  host replies with the full room state. The joiner retries once after 10 seconds,
+  then reports that no host answered.
+- Votes, resets, and departures are events that every browser applies, in the
+  order ntfy delivers them, to its own copy of the state. Votes reveal locally
+  once everyone has voted, and the host also publishes its state at that point
+  so everyone converges on the same result.
+- Messages carry per-sender sequence numbers. Duplicates are ignored. After a
+  dropped connection, or a detected gap in a sequence, a guest requests fresh
+  state from the host. Because messages aren't cached, missed messages are never
+  replayed; the room shows *Reconnecting* until it resyncs. If the host missed a
+  vote, the voter's browser sends it again.
+- Idle participants send a heartbeat every 2.5 minutes. The host removes anyone
+  silent for 6 minutes; guests end the room if the host is silent that long.
+  Leaving the room or closing the tab announces the departure immediately when
+  the browser allows it.
+- The host leaving ends the room. There is no host migration or recovery.
+
+Message cost: creating a room publishes nothing. A join costs 2 messages, each
+vote or reset 1, and each reveal 1 more (the host's state). Three people joining and voting once
+publish 8 messages in total. Idle heartbeats add about 24 messages per person per
+hour, which is the largest cost in long sessions.
+
+## Limitations and privacy
+
+- **Not private.** All ntfy.sh topics are public. Room codes are short
+  (31⁵ ≈ 28.6 million combinations), guessable, and are **not passwords**. Anyone
+  who knows or guesses a code can read every message in that room (names and
+  vote values, including votes not yet revealed) and could post fake messages,
+  such as joins or votes under someone else's identity. The app hides votes until
+  reveal, but they are visible in every participant's browser and in transit to
+  ntfy.sh. The ntfy.sh operator can see all messages. Don't enter sensitive data.
+- **Rate limits.** ntfy.sh allows anonymous users about **250 published messages
+  per day per IP address**, with a burst of 60 requests and then 1 request per
+  5 seconds (checked October 2026; limits can change). People behind the same
+  office network or VPN share one allowance, so a long, busy session can run out.
+  Rejected messages show an error with ntfy's response, and the action isn't
+  applied. Repeated abuse can get an IP address temporarily banned.
+- **Availability.** ntfy.sh is a free service with no availability guarantee for
+  this app. Some networks block it. Message delivery isn't guaranteed; the app
+  detects and repairs common gaps, but this is not a production-grade protocol.
+- **Code collisions.** Codes are random and there is no collision check at
+  creation. If two live rooms happen to share a code, both hosts answer the
+  next join; a host that sees another host's messages ends its room and asks
+  everyone to create a new one.
+- **Room size.** A room holds up to 20 people, fewer with very long names, so
+  state fits in ntfy's 4,096-byte message limit.
+- Keep the host's tab open and the device awake. Sleeping or backgrounded tabs
+  pause timers and may lose the connection. The app resyncs when they return; a
+  guest who was removed in the meantime rejoins automatically.
 - Newcomers count toward an unfinished round. If results have already been
   revealed, newcomers wait for the next round. A solo host's vote reveals
   immediately.
-- Before reveal, the host sends only voted/not-voted status, not vote values.
-  **The host can inspect all votes in their own browser.** This is UI privacy,
-  not cryptographic ballot secrecy. The host is trusted to coordinate honestly.
-- Anyone with the link can join; there is no authentication, room password,
-  moderation, persistence, or production availability guarantee.
 
 ## GitHub Pages
 

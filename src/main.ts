@@ -1,27 +1,29 @@
 import './style.css';
-import { PokerNetwork } from './network.ts';
-import { isName, OPTIONS } from './state.ts';
+import { NtfyTransport, ntfyUrl, topicFor } from './ntfy.ts';
+import { Room } from './room.ts';
+import { createRoomCode, isName, isRoomCode, normalizeRoomCode, OPTIONS } from './state.ts';
 import type { Snapshot, Vote } from './state.ts';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
-let network: PokerNetwork | undefined;
+let room: Room | undefined;
 let state: Snapshot | undefined;
-let selfId = '';
-let selected: Vote | null = null;
+let myVote: Vote | null = null;
+let pending: Vote | null = null;
 let connecting = false;
+let reconnecting = false;
 let failure = '';
 let notice = '';
-let diagnostics = '';
+let sendError = '';
 let storageWarning = '';
 let savedName = readStorage('poker.name');
-let lastSession = readStorage('poker.session');
+let lastRoom = readStorage('poker.room');
 
 function readStorage(key: string): string {
   try {
     return localStorage.getItem(key) ?? '';
   } catch (error) {
     console.warn('Browser storage is unavailable:', error);
-    storageWarning = 'Browser storage is unavailable. Your name and last session will not be remembered.';
+    storageWarning = 'Browser storage is unavailable. Your name and last room will not be remembered.';
     return '';
   }
 }
@@ -31,7 +33,7 @@ function saveStorage(key: string, value: string): void {
     localStorage.setItem(key, value);
   } catch (error) {
     console.warn('Could not save browser preferences:', error);
-    storageWarning = 'Your browser could not save your name or last session.';
+    storageWarning = 'Your browser could not save your name or last room.';
   }
 }
 
@@ -41,13 +43,17 @@ function escape(value: string): string {
   })[character]!);
 }
 
+/** null: home page; string: room code; undefined: invalid link. */
 function route(): string | null | undefined {
   if (!location.hash || location.hash === '#/' || location.hash === '#') return null;
-  return location.hash.match(/^#\/planning-poker\/([a-zA-Z0-9_-]{1,128})\/?$/)?.[1];
+  const match = location.hash.match(/^#\/room\/([a-zA-Z0-9]+)\/?$/);
+  if (!match) return undefined;
+  const code = normalizeRoomCode(match[1]);
+  return isRoomCode(code) ? code : undefined;
 }
 
-function sessionLink(id: string): string {
-  return `${location.href.split('#')[0]}#/planning-poker/${id}`;
+function roomLink(code: string): string {
+  return `${location.href.split('#')[0]}#/room/${code}`;
 }
 
 function shell(content: string): void {
@@ -57,158 +63,193 @@ function shell(content: string): void {
         <span class="brand-mark" aria-hidden="true"><span></span><span></span></span>
         planning<span class="brand-light">poker</span>
       </a>
-      <span class="prototype-badge">PEER-TO-PEER PROTOTYPE</span>
+      <span class="prototype-badge">PROTOTYPE</span>
     </header>
-    <main>${storageWarning ? `<p class="banner warning" role="status">${escape(storageWarning)}</p>` : ''}${content}
-      <details id="connection-diagnostics" class="connection-diagnostics" ${failure ? 'open' : ''} ${diagnostics ? '' : 'hidden'}>
-        <summary>Connection diagnostics</summary>
-        <p>No IP addresses, names, session IDs, or votes are included. Copy the report from each device after a failed attempt.</p>
-        <button id="copy-diagnostics" class="button secondary small">Copy diagnostics</button>
-        <span id="diagnostics-copy-status" role="status"></span>
-        <pre tabindex="0" aria-label="Connection diagnostics report"></pre>
-      </details>
-    </main>
-    <footer>Small cards. Shared understanding.<span>Powered by WebRTC &amp; PeerJS</span></footer>`;
-  updateDiagnostics();
-  document.querySelector('#copy-diagnostics')?.addEventListener('click', async () => {
-    const status = document.querySelector('#diagnostics-copy-status')!;
-    try {
-      await navigator.clipboard.writeText(diagnostics);
-      status.textContent = 'Copied.';
-    } catch (error) {
-      console.warn('Could not copy diagnostics:', error);
-      status.textContent = 'Could not copy automatically. Select the report below, or take a screenshot.';
-    }
-  });
+    <main>${storageWarning ? `<p class="banner warning" role="status">${escape(storageWarning)}</p>` : ''}${content}</main>
+    <footer>Small cards. Shared understanding.<span>Relayed by the public ntfy.sh service</span></footer>`;
 }
 
-function updateDiagnostics(): void {
-  const panel = document.querySelector<HTMLDetailsElement>('#connection-diagnostics');
-  if (!panel) return;
-  panel.hidden = !diagnostics;
-  panel.querySelector('pre')!.textContent = diagnostics;
-}
+const PRIVACY_NOTE = `Rooms are relayed through the free public <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy.sh</a>
+  service. Room codes are short and guessable, not passwords: anyone who knows or guesses a code can read
+  everything sent in that room, including names and votes, and could send fake messages. This app hides votes
+  until the reveal, but they are not secret. Nothing is stored after the room ends.`;
 
 function render(): void {
-  const id = route();
-  if (state) {
-    renderSession();
+  const code = route();
+  if (state && room) {
+    renderRoom();
     return;
   }
-  if (id === undefined) {
-    shell('<section class="welcome"><p class="eyebrow">LOST YOUR WAY?</p><h1>That link doesn\'t look right.</h1><p>Check your session link or start a fresh session.</p><a class="button primary" href="#/">Go to home</a></section>');
+  if (code === undefined) {
+    document.title = 'Planning Poker';
+    shell(`<section class="welcome"><p class="eyebrow">LOST YOUR WAY?</p><h1>That link doesn't look right.</h1>
+      <p class="intro">Room links look like <code>#/room/ABCDE</code>. Check the code or start a fresh room.</p>
+      <a class="button primary" href="#/">Go to home</a></section>`);
     return;
   }
-  const joining = id !== null;
-  document.title = joining ? 'Join session | Planning Poker' : 'Planning Poker';
+  const joining = code !== null;
+  document.title = joining ? `Join room ${code} | Planning Poker` : 'Planning Poker';
+  const disabled = connecting ? 'disabled' : '';
   shell(`
     <section class="welcome">
       <p class="eyebrow">${joining ? 'A SEAT AT THE TABLE' : 'LESS GUESSWORK. MORE TEAMWORK.'}</p>
       <h1>${joining ? 'Let’s get you<br>in the room.' : 'Get on the<br><span>same page.</span>'}</h1>
       <p class="intro">${joining
-        ? 'Pick a name, meet your team, and put your estimate on the table.'
-        : 'A little planning poker for your next big idea.<br>Create a session, share a link, and estimate together.'}</p>
-      <form id="name-form" class="entry-card">
+        ? `You’re joining room <strong class="code-text">${code}</strong>. Pick a name and put your estimate on the table.`
+        : 'A little planning poker for your next big idea.<br>Create a room, share the code, and estimate together.'}</p>
+      <form id="entry-form" class="entry-card" novalidate>
         <label for="name">Your name</label>
         <input id="name" name="name" placeholder="e.g. Alex" autocomplete="nickname" maxlength="40"
-          value="${escape(savedName)}" required ${connecting ? 'disabled' : ''}>
-        <button class="button primary" type="submit" ${connecting ? 'disabled' : ''}>
-          ${connecting ? 'Connecting...' : joining ? 'Join session →' : 'Create a session →'}
-        </button>
-        <p class="form-hint">${joining ? 'The host needs to keep their session open.' : 'No account. No installs. Just your team.'}</p>
+          value="${escape(savedName)}" required ${disabled}>
+        ${joining ? `<button class="button primary" type="submit" value="join" ${disabled}>
+            ${connecting ? 'Connecting...' : `Join room ${code} →`}</button>
+          <p class="form-hint">The host needs to keep their room open.</p>`
+        : `<button class="button primary" type="submit" value="create" ${disabled}>
+            ${connecting ? 'Connecting...' : 'Create a room →'}</button>
+          <div class="divider"><span>or join with a code</span></div>
+          <label for="code">Room code</label>
+          <div class="code-row">
+            <input id="code" name="code" class="code-input" placeholder="ABCDE" maxlength="6" autocomplete="off"
+              autocapitalize="characters" spellcheck="false" ${disabled}>
+            <button class="button secondary" type="submit" value="join" ${disabled}>Join →</button>
+          </div>`}
       </form>
       ${failure ? `<div class="banner error" role="alert">${escape(failure)}</div>` : ''}
+      ${sendError ? `<div class="banner error" role="alert">${escape(sendError)}</div>` : ''}
       ${notice ? `<p class="banner" role="status">${escape(notice)}</p>` : ''}
-      ${joining ? '<a class="text-link" href="#/">← Create a different session</a>' :
-        lastSession ? `<a class="text-link" href="#/planning-poker/${escape(lastSession)}">Rejoin your last session →</a>` : ''}
+      ${joining ? '<a class="text-link" href="#/">← Create a different room</a>' :
+        lastRoom && isRoomCode(lastRoom) ? `<a class="text-link" href="#/room/${lastRoom}">Rejoin room ${lastRoom} →</a>` : ''}
       <div class="how-it-works">
-        <div><span>01</span><strong>Gather your team</strong><p>One link brings everyone in.</p></div>
+        <div><span>01</span><strong>Gather your team</strong><p>One five-character code brings everyone in.</p></div>
         <div><span>02</span><strong>Pick your estimate</strong><p>Vote independently. No peeking.</p></div>
         <div><span>03</span><strong>Reveal &amp; discuss</strong><p>Everyone votes. Cards flip.</p></div>
       </div>
-      <p class="network-note">This prototype uses PeerJS’s public signaling service and STUN servers to connect browsers.
-        Votes are sent over WebRTC to the host. Keep the host’s tab open; sessions are not saved.</p>
+      <p class="network-note">${PRIVACY_NOTE} Keep the host’s tab open; when the host leaves, the room ends.</p>
     </section>`);
-  document.querySelector<HTMLFormElement>('#name-form')?.addEventListener('submit', (event) => {
+
+  const form = document.querySelector<HTMLFormElement>('#entry-form')!;
+  form.addEventListener('submit', (event) => {
     event.preventDefault();
-    const input = document.querySelector<HTMLInputElement>('#name')!;
-    const name = input.value.trim();
+    const nameInput = form.querySelector<HTMLInputElement>('#name')!;
+    const codeInput = form.querySelector<HTMLInputElement>('#code');
+    const action = (event.submitter as HTMLButtonElement | null)?.value ?? (joining ? 'join' : 'create');
+    const name = nameInput.value.trim();
     if (!isName(name)) {
-      input.setCustomValidity('Enter a name between 1 and 40 characters.');
-      input.reportValidity();
+      nameInput.setCustomValidity('Enter a name between 1 and 40 characters.');
+      nameInput.reportValidity();
       return;
+    }
+    let target = code;
+    if (!joining && action === 'join' && codeInput) {
+      target = normalizeRoomCode(codeInput.value);
+      if (!isRoomCode(target)) {
+        codeInput.setCustomValidity('Enter the 5-character room code, e.g. ABCDE.');
+        codeInput.reportValidity();
+        return;
+      }
     }
     savedName = name;
     saveStorage('poker.name', name);
-    start(name, id);
+    if (target) {
+      if (!joining) history.pushState(null, '', `#/room/${target}`);
+      start(name, target, false);
+    } else {
+      const created = createRoomCode();
+      history.pushState(null, '', `#/room/${created}`);
+      start(name, created, true);
+    }
   });
-  document.querySelector<HTMLInputElement>('#name')?.addEventListener('input', (event) => {
-    (event.target as HTMLInputElement).setCustomValidity('');
-  });
+  form.querySelectorAll('input').forEach((input) => input.addEventListener('input', () => input.setCustomValidity('')));
 }
 
-function start(name: string, hostId: string | null): void {
-  network?.close();
+function start(name: string, code: string, host: boolean): void {
+  room?.close();
   failure = '';
   notice = '';
-  diagnostics = '';
+  sendError = '';
+  state = undefined;
+  myVote = null;
+  pending = null;
+  reconnecting = false;
   connecting = true;
   render();
-  network = new PokerNetwork(name, hostId, {
-    onDiagnostics: (text) => {
-      diagnostics = text;
-      updateDiagnostics();
-    },
-    onReady: (id, peerId) => {
-      selfId = peerId;
-      connecting = false;
-      lastSession = id;
-      saveStorage('poker.session', id);
-      history.replaceState(null, '', `#/planning-poker/${id}`);
-    },
-    onState: (next) => {
-      if (next.round !== state?.round) selected = null;
-      state = next;
-      render();
-    },
-    onNotice: (message) => {
-      notice = message;
-      render();
-    },
-    onEnd: (message) => {
-      failure = message;
-      notice = '';
-      state = undefined;
-      selected = null;
-      connecting = false;
-      render();
+  const current = new Room({
+    code,
+    name,
+    host,
+    transport: new NtfyTransport(ntfyUrl(), topicFor(code)),
+    callbacks: {
+      onReady: () => {
+        connecting = false;
+        lastRoom = code;
+        saveStorage('poker.room', code);
+      },
+      onState: (next, mine) => {
+        if (next.round !== state?.round) pending = null;
+        if (mine !== null && mine === pending) pending = null;
+        state = next;
+        myVote = mine;
+        render();
+      },
+      onStatus: (status) => {
+        reconnecting = status === 'reconnecting';
+        render();
+      },
+      onNotice: (message) => {
+        notice = message;
+        render();
+      },
+      onError: (message) => {
+        sendError = message;
+        pending = null;
+        render();
+      },
+      onEnd: (message) => {
+        if (room !== current) return;
+        // A host's code is dead once its room ends; return home instead of offering to join it.
+        if (host) history.replaceState(null, '', '#/');
+        room = undefined;
+        failure = message;
+        notice = '';
+        state = undefined;
+        pending = null;
+        connecting = false;
+        reconnecting = false;
+        render();
+      },
     },
   });
+  room = current;
 }
 
-function renderSession(): void {
-  if (!state) return;
-  const me = state.participants.find((person) => person.id === selfId)!;
+function renderRoom(): void {
+  if (!state || !room) return;
+  const me = state.participants.find((person) => person.id === room!.selfId)!;
+  const selected = pending ?? myVote;
   const voted = state.participants.filter((person) => person.hasVoted).length;
-  const host = state.hostId === selfId;
   const resultVotes = state.participants.flatMap((person) => person.vote === null ? [] : [person.vote]);
   const average = resultVotes.length
     ? (resultVotes.reduce<number>((sum, value) => sum + value, 0) / resultVotes.length).toFixed(1)
     : '—';
   const status = state.revealed ? 'Cards on the table' : 'Make your estimate';
-  document.title = `Round ${state.round} | Planning Poker`;
+  document.title = `Round ${state.round} | Room ${room.code} | Planning Poker`;
   shell(`
     <section class="session">
       <div class="session-heading">
-        <div><p class="eyebrow">YOUR TEAM’S ESTIMATION SPACE</p><h1>Planning room<span class="live-dot" title="Connected"></span></h1></div>
-        <a class="button secondary small" href="#/">Leave session</a>
+        <div><p class="eyebrow">YOUR TEAM’S ESTIMATION SPACE</p>
+          <h1>Planning room<span class="live-dot ${reconnecting ? 'offline' : ''}"
+            title="${reconnecting ? 'Reconnecting' : 'Connected'}"></span></h1></div>
+        <a class="button secondary small" href="#/">Leave room</a>
       </div>
       <div class="share-bar">
-        <span class="share-label">Better together. Invite your team.</span>
-        <label class="sr-only" for="session-link">Session link</label>
-        <input id="session-link" readonly value="${escape(sessionLink(state.hostId))}">
+        <span class="share-label">Room code <strong class="room-code" aria-label="Room code">${room.code}</strong></span>
+        <label class="sr-only" for="room-link">Room link</label>
+        <input id="room-link" readonly value="${escape(roomLink(room.code))}">
         <button class="button secondary small" id="copy-link">Copy link</button>
       </div>
+      ${reconnecting ? '<p class="banner warning" role="status">Connection to ntfy.sh lost. Reconnecting... Updates sent meanwhile may be missed; the room resyncs when the connection returns.</p>' : ''}
+      ${sendError ? `<div class="banner error" role="alert">${escape(sendError)}
+        <button class="button secondary small" id="dismiss-error">Dismiss</button></div>` : ''}
       ${notice ? `<p class="banner" role="status">${escape(notice)}</p>` : ''}
       <div class="room-grid">
         <section class="voting-panel" aria-labelledby="voting-title">
@@ -229,12 +270,12 @@ function renderSession(): void {
             ${state.revealed ? `<div class="results-summary"><span>Team average <strong>${average}</strong></span>
               <button class="button primary" id="reset">Start next round →</button></div>
               <p class="muted">${me.hasVoted ? 'All votes are in. Discuss, then start fresh.' : 'You joined after the reveal. Start the next round to vote.'}</p>`
-              : `<p class="vote-feedback">${me.hasVoted ? 'Your vote is in. Waiting for the team...' : 'Your card is waiting for you.'}</p>
+              : `<p class="vote-feedback">${pending !== null ? 'Sending your vote...' : me.hasVoted ? 'Your vote is in. Waiting for the team...' : 'Your card is waiting for you.'}</p>
               <p class="muted">${me.hasVoted ? 'You can change your vote until everyone has voted.' : 'Votes reveal automatically when everyone has voted.'}</p>`}
           </div>
-          <div class="table-note"><span class="mini-dot"></span> ${host
+          <div class="table-note"><span class="mini-dot"></span> ${room.isHost
             ? 'You’re hosting. Keep this tab open to keep the room alive.'
-            : 'Connected to the host. If they leave, this room closes.'}</div>
+            : 'If the host leaves, this room closes.'}</div>
         </section>
         <aside class="people-panel" aria-labelledby="people-title">
           <div class="people-heading"><h2 id="people-title">At the table</h2><span class="count">${state.participants.length}</span></div>
@@ -242,7 +283,7 @@ function renderSession(): void {
           <ul class="people-list">
             ${state.participants.map((person, index) => `<li>
               <span class="avatar avatar-${index % 4}" aria-hidden="true">${escape(person.name.charAt(0).toUpperCase())}</span>
-              <div class="person-info"><strong>${escape(person.name)}${person.id === selfId ? ' <span class="you">(you)</span>' : ''}</strong>
+              <div class="person-info"><strong>${escape(person.name)}${person.id === room!.selfId ? ' <span class="you">(you)</span>' : ''}</strong>
                 <span>${person.id === state!.hostId ? 'Host' : 'Participant'}</span></div>
               <span class="person-vote ${state!.revealed ? 'visible-vote' : person.hasVoted ? 'voted' : ''}"
                 aria-label="${state!.revealed ? person.vote === null ? 'Joining next round' : `Voted ${person.vote}` : person.hasVoted ? 'Has voted' : 'Not voted'}">
@@ -253,49 +294,60 @@ function renderSession(): void {
         </aside>
       </div>
       <p class="network-note">Only connected participants count toward the reveal. Anyone can start the next round.
-        A lost connection can take about 30 seconds to detect.</p>
+        Someone who closes their laptop without leaving can take about 6 minutes to drop off the table.<br>${PRIVACY_NOTE}</p>
     </section>`);
 
   document.querySelectorAll<HTMLButtonElement>('[data-vote]').forEach((button) => {
     button.addEventListener('click', () => {
       const value = Number(button.dataset.vote) as Vote;
-      selected = value;
-      network?.castVote(value);
+      if (value === myVote && pending === null) return;
+      pending = value;
+      sendError = '';
+      void room?.castVote(value);
       render();
     });
   });
-  document.querySelector('#reset')?.addEventListener('click', () => network?.reset());
+  document.querySelector('#reset')?.addEventListener('click', () => {
+    sendError = '';
+    void room?.resetRound();
+  });
+  document.querySelector('#dismiss-error')?.addEventListener('click', () => {
+    sendError = '';
+    render();
+  });
   document.querySelector('#copy-link')?.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(sessionLink(state!.hostId));
-      notice = 'Session link copied. Send it to your team!';
+      await navigator.clipboard.writeText(roomLink(room!.code));
+      notice = `Link copied. Teammates can also type code ${room!.code} on the home page.`;
     } catch (error) {
       console.warn('Clipboard access failed:', error);
-      notice = 'Could not copy automatically. Select and copy the session link above.';
+      notice = 'Could not copy automatically. Select and copy the room link above.';
     }
     render();
   });
 }
 
-window.addEventListener('hashchange', () => {
-  network?.close();
-  network = undefined;
+function leaveRoom(): void {
+  room?.leave();
+  room = undefined;
   state = undefined;
-  selected = null;
-  selfId = '';
+  myVote = null;
+  pending = null;
   connecting = false;
+  reconnecting = false;
+}
+
+window.addEventListener('hashchange', () => {
+  leaveRoom();
   failure = '';
   notice = '';
-  diagnostics = '';
+  sendError = '';
   render();
 });
-window.addEventListener('pagehide', () => network?.close());
+window.addEventListener('pagehide', () => leaveRoom());
 window.addEventListener('pageshow', (event) => {
   if (event.persisted) {
-    network = undefined;
-    state = undefined;
-    connecting = false;
-    failure = 'Your connection closed while this page was away. Join again to reconnect.';
+    failure = 'You left the room when this page was put away. Join again to reconnect.';
     render();
   }
 });
