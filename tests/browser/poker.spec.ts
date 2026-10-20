@@ -48,6 +48,9 @@ test('create, join by typed code and link, hide votes, reveal, late join, reset,
   const guest = await open(browser, errors, phone);
   const third = await open(browser, errors);
 
+  const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight);
+  await host.goto('./');
+  expect(await fits(host)).toBe(true);
   const code = await createRoom(host, 'Alex');
   const link = await host.getByLabel('Room link').inputValue();
   expect(link).toMatch(new RegExp(`#/room/${code}$`));
@@ -90,6 +93,9 @@ test('create, join by typed code and link, hide votes, reveal, late join, reset,
   await third.getByRole('link', { name: 'Leave room' }).click();
   await expect(host.getByRole('heading', { name: 'Cards on the table' })).toBeVisible();
   await expect(host.locator('.visible-vote')).toHaveText(['3', '5']);
+
+  await host.getByRole('button', { name: 'Copy link' }).click();
+  expect(await fits(host)).toBe(true);
 
   const messages = await published();
   expect(messages.every((message) => message.cache === 'no')).toBe(true);

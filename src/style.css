@@ -19,17 +19,10 @@ a { color: var(--purple); }
 button, .button { cursor: pointer; }
 button:disabled { cursor: default; }
 :focus-visible { outline: 3px solid #a89aed; outline-offset: 4px; }
-.site-header { max-width: 1200px; margin: auto; padding: 30px 36px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.brand { display: flex; align-items: center; color: #29273f; font-weight: 760; font-size: 23px; letter-spacing: -1px; text-decoration: none; }
-.brand-light { font-weight: 420; }
-.brand-mark { width: 37px; height: 33px; position: relative; margin-right: 10px; }
-.brand-mark span { width: 21px; height: 28px; border: 2px solid var(--purple); border-radius: 5px; position: absolute; left: 5px; top: 2px; transform: rotate(-17deg); background: #f7f8fc; }
-.brand-mark span + span { transform: rotate(12deg); left: 13px; background: #ded8ff; }
-.prototype-badge { font-size: 10px; font-weight: 700; letter-spacing: 1.1px; color: var(--muted); border: 1px solid var(--border); border-radius: 30px; padding: 7px 11px; }
-main { max-width: 1128px; margin: auto; padding: 0 24px; min-height: calc(100vh - 175px); }
+main { max-width: 1128px; margin: auto; padding: 8px 24px 48px; }
 h1, h2, p { margin-top: 0; }
 .eyebrow { color: var(--purple); font-size: 11px; letter-spacing: 1.7px; font-weight: 750; margin-bottom: 18px; }
-.welcome { max-width: 780px; margin: 48px auto 0; text-align: center; }
+.welcome { max-width: 780px; margin: 40px auto 0; text-align: center; }
 .welcome h1 { font-size: clamp(44px, 7vw, 68px); line-height: 1.07; letter-spacing: -3px; font-weight: 760; margin-bottom: 23px; }
 .welcome h1 span { color: var(--purple); }
 .intro { color: var(--muted); line-height: 1.7; font-size: 16px; margin-bottom: 28px; }
@@ -52,17 +45,8 @@ input::placeholder { color: #9a9aaa; }
 .code-input::placeholder { letter-spacing: 3px; }
 .room-code, .code-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 2px; color: var(--purple); }
 .room-code { font-size: 15px; margin-left: 6px; }
-.network-note a { color: inherit; }
-.how-it-works { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; margin: 48px auto 30px; text-align: left; }
-.how-it-works > div { border-top: 1px solid var(--border); padding-top: 18px; }
-.how-it-works span { color: #9282df; font-size: 11px; display: block; margin-bottom: 10px; font-weight: 700; }
-.how-it-works strong { font-size: 13px; }
-.how-it-works p { font-size: 12px; color: var(--muted); line-height: 1.6; margin: 7px 0 0; }
-.network-note { color: var(--muted); font-size: 11px; line-height: 1.7; max-width: 700px; margin: 24px auto; text-align: center; }
-footer { max-width: 1128px; margin: 0 auto; padding: 25px 24px; display: flex; justify-content: space-between; gap: 20px; color: #858599; font-size: 11px; }
-footer span { color: #9696a7; }
-.session { margin-top: 38px; }
-.session-heading { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 26px; }
+.session { margin-top: 28px; }
+.session-heading { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-bottom: 20px; }
 .session-heading .eyebrow { margin-bottom: 9px; font-size: 10px; }
 .session-heading h1 { font-size: 32px; letter-spacing: -1.2px; margin-bottom: 0; display: flex; align-items: center; gap: 13px; }
 .live-dot, .mini-dot { width: 8px; height: 8px; display: inline-block; border-radius: 100%; background: #6cba97; }
@@ -71,19 +55,19 @@ footer span { color: #9696a7; }
 .secondary { border-color: #dcdde9; color: #55546e; background: white; }
 .secondary:hover { background: #efedf9; }
 .small { padding: 10px 14px; font-size: 12px; flex-shrink: 0; }
-.share-bar { display: flex; align-items: center; gap: 12px; background: #eeecf9; border: 1px solid #e4e0f4; padding: 13px 17px; border-radius: 12px; margin-bottom: 26px; }
+.share-bar { display: flex; align-items: center; gap: 12px; background: #eeecf9; border: 1px solid #e4e0f4; padding: 13px 17px; border-radius: 12px; margin-bottom: 20px; }
 .share-label { font-size: 12px; font-weight: 550; white-space: nowrap; }
 .share-bar input { font-size: 11px; color: #79738e; padding: 9px 12px; border-color: #dfdaef; background: #ffffff90; }
 .room-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
 .voting-panel, .people-panel { border-radius: 16px; background: white; border: 1px solid var(--border); box-shadow: 0 5px 18px #24213a03; }
 .voting-panel { padding: 28px; }
-.panel-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; gap: 12px; }
+.panel-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; gap: 12px; }
 .round-label { color: #858097; font-size: 10px; letter-spacing: 1.6px; font-weight: 700; }
 .status-pill { color: #82759f; background: #f3f0fa; font-size: 11px; border-radius: 30px; padding: 6px 11px; }
 .status-pill.revealed { color: #3d8065; background: #eaf7f0; }
 .voting-panel h2 { font-size: 24px; letter-spacing: -.7px; margin-bottom: 9px; }
 .muted { color: var(--muted); font-size: 12px; line-height: 1.65; }
-.vote-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; margin: 28px 0; }
+.vote-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 13px; margin: 22px 0; }
 .vote-card { position: relative; height: 112px; background: #fff; border: 1.5px solid #dedde9; border-radius: 10px; color: #57516d; font-size: 30px; font-weight: 650; transition: border-color .15s, background .15s, transform .15s; }
 .vote-card:hover:not(:disabled) { border-color: #9683e9; background: #faf8ff; transform: translateY(-3px); }
 .vote-card.selected { border-color: var(--purple); background: #f0ecff; color: var(--purple); box-shadow: 0 3px 10px #6550d915; }
@@ -118,6 +102,9 @@ footer span { color: #9696a7; }
 .person-vote.voted { background: #eeeafa; color: var(--purple); border: 1px solid #dfd7f8; }
 .person-vote.visible-vote { color: var(--purple); background: #eeeafa; border: 1px solid #dfd7f8; font-weight: 700; }
 .people-note { border-top: 1px solid #efedf5; padding-top: 16px; margin: 4px 0 0; font-size: 10px; line-height: 1.7; color: #9690a5; }
+.toasts { display: grid; gap: 8px; max-width: 560px; margin: 0 auto; padding: 0 18px 24px; }
+.toasts:empty { display: none; }
+.toasts .banner { margin: 0; max-width: none; }
 .banner { border: 1px solid #dcd6f2; border-radius: 10px; padding: 14px 18px; color: #605386; background: #eeebfa; font-size: 12px; line-height: 1.7; margin: 15px auto; max-width: 100%; overflow-wrap: anywhere; }
 .banner .button { margin-left: 10px; }
 .error { color: #9c3e49; background: #fff0f1; border-color: #f1d6db; max-width: 520px; }
@@ -131,6 +118,14 @@ footer span { color: #9696a7; }
   .card-bottom { right: 6px; bottom: 7px; }
   .voting-panel { padding: 32px; }
 }
+@media (min-width: 801px) {
+  .toasts { position: fixed; z-index: 10; left: 50%; bottom: 20px; transform: translateX(-50%); width: min(560px, calc(100% - 48px)); padding: 0; }
+  .toasts .banner { box-shadow: 0 10px 30px #24213a1f; }
+  /* The participant list scrolls inside a panel matched to the voting panel's height, so the page doesn't grow. */
+  .people-panel { height: 0; min-height: 100%; display: flex; flex-direction: column; }
+  .room-grid { align-items: stretch; }
+  .people-list { flex: 1; min-height: 0; overflow-y: auto; }
+}
 @media (max-width: 800px) {
   .room-grid { grid-template-columns: minmax(0, 1fr); }
   .share-bar { flex-wrap: wrap; }
@@ -139,16 +134,10 @@ footer span { color: #9696a7; }
   .people-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 25px; }
 }
 @media (max-width: 480px) {
-  .site-header { padding: 22px 20px; }
-  .brand { font-size: 21px; }
-  .prototype-badge { font-size: 8px; max-width: 112px; text-align: center; line-height: 1.5; padding: 5px 8px; }
-  main { padding: 0 18px; }
+  main { padding: 0 18px 32px; }
   .welcome { margin-top: 35px; }
   .welcome h1 { letter-spacing: -2px; }
   .intro { font-size: 14px; }
-  .how-it-works { gap: 12px; margin-top: 35px; }
-  .how-it-works strong { font-size: 12px; }
-  .how-it-works p { font-size: 11px; }
   .session { margin-top: 25px; }
   .session-heading h1 { font-size: 26px; gap: 10px; }
   .session-heading .eyebrow { font-size: 8px; letter-spacing: 1px; }
@@ -158,7 +147,6 @@ footer span { color: #9696a7; }
   .vote-card { height: 98px; }
   .panel-top { margin-bottom: 24px; }
   .people-list { display: block; }
-  footer { padding: 25px 18px; flex-direction: column; gap: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; }

@@ -1,0 +1,53 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "App: dev server + Chrome",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:5173/planning-poker/",
+      "webRoot": "${workspaceFolder}",
+      "preLaunchTask": "dev server",
+      "postDebugTask": "stop dev server"
+    },
+    {
+      "name": "Tests: unit (all)",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["--test", "tests/*.test.ts"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Tests: unit (current file)",
+      "type": "node",
+      "request": "launch",
+      "runtimeArgs": ["--test", "${file}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Tests: browser (headed, local ntfy stand-in)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/@playwright/test/cli.js",
+      "args": ["test", "--headed"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Tests: live ntfy.sh smoke (uses ~6 public messages)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/node_modules/@playwright/test/cli.js",
+      "args": ["test", "live-ntfy", "--headed"],
+      "env": { "NTFY_LIVE": "1" },
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

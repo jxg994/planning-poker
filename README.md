@@ -33,6 +33,10 @@ One optional smoke test uses the real ntfy.sh (about 6 messages per run):
 NTFY_LIVE=1 npx playwright test live-ntfy
 ```
 
+In VS Code, **Run and Debug** has matching configurations: the app in Chrome
+(starts and stops the dev server), unit tests (all or the open file), headed
+browser tests, and the live smoke test.
+
 ## How to use
 
 1. Enter a name and select **Create a room**. Its creator is the host.

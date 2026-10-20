@@ -56,23 +56,12 @@ function roomLink(code: string): string {
   return `${location.href.split('#')[0]}#/room/${code}`;
 }
 
-function shell(content: string): void {
+/** Banners render in a toast area so they never push the page into scrolling on desktop. */
+function shell(content: string, banners = ''): void {
   app.innerHTML = `
-    <header class="site-header">
-      <a class="brand" href="#/" aria-label="Planning Poker home">
-        <span class="brand-mark" aria-hidden="true"><span></span><span></span></span>
-        planning<span class="brand-light">poker</span>
-      </a>
-      <span class="prototype-badge">PROTOTYPE</span>
-    </header>
-    <main>${storageWarning ? `<p class="banner warning" role="status">${escape(storageWarning)}</p>` : ''}${content}</main>
-    <footer>Small cards. Shared understanding.<span>Relayed by the public ntfy.sh service</span></footer>`;
+    <main>${content}</main>
+    <div class="toasts">${storageWarning ? `<p class="banner warning" role="status">${escape(storageWarning)}</p>` : ''}${banners}</div>`;
 }
-
-const PRIVACY_NOTE = `Rooms are relayed through the free public <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy.sh</a>
-  service. Room codes are short and guessable, not passwords: anyone who knows or guesses a code can read
-  everything sent in that room, including names and votes, and could send fake messages. This app hides votes
-  until the reveal, but they are not secret. Nothing is stored after the room ends.`;
 
 function render(): void {
   const code = route();
@@ -114,18 +103,12 @@ function render(): void {
             <button class="button secondary" type="submit" value="join" ${disabled}>Join →</button>
           </div>`}
       </form>
-      ${failure ? `<div class="banner error" role="alert">${escape(failure)}</div>` : ''}
-      ${sendError ? `<div class="banner error" role="alert">${escape(sendError)}</div>` : ''}
-      ${notice ? `<p class="banner" role="status">${escape(notice)}</p>` : ''}
       ${joining ? '<a class="text-link" href="#/">← Create a different room</a>' :
         lastRoom && isRoomCode(lastRoom) ? `<a class="text-link" href="#/room/${lastRoom}">Rejoin room ${lastRoom} →</a>` : ''}
-      <div class="how-it-works">
-        <div><span>01</span><strong>Gather your team</strong><p>One five-character code brings everyone in.</p></div>
-        <div><span>02</span><strong>Pick your estimate</strong><p>Vote independently. No peeking.</p></div>
-        <div><span>03</span><strong>Reveal &amp; discuss</strong><p>Everyone votes. Cards flip.</p></div>
-      </div>
-      <p class="network-note">${PRIVACY_NOTE} Keep the host’s tab open; when the host leaves, the room ends.</p>
-    </section>`);
+    </section>`, `
+      ${failure ? `<div class="banner error" role="alert">${escape(failure)}</div>` : ''}
+      ${sendError ? `<div class="banner error" role="alert">${escape(sendError)}</div>` : ''}
+      ${notice ? `<p class="banner" role="status">${escape(notice)}</p>` : ''}`);
 
   const form = document.querySelector<HTMLFormElement>('#entry-form')!;
   form.addEventListener('submit', (event) => {
@@ -247,10 +230,6 @@ function renderRoom(): void {
         <input id="room-link" readonly value="${escape(roomLink(room.code))}">
         <button class="button secondary small" id="copy-link">Copy link</button>
       </div>
-      ${reconnecting ? '<p class="banner warning" role="status">Connection to ntfy.sh lost. Reconnecting... Updates sent meanwhile may be missed; the room resyncs when the connection returns.</p>' : ''}
-      ${sendError ? `<div class="banner error" role="alert">${escape(sendError)}
-        <button class="button secondary small" id="dismiss-error">Dismiss</button></div>` : ''}
-      ${notice ? `<p class="banner" role="status">${escape(notice)}</p>` : ''}
       <div class="room-grid">
         <section class="voting-panel" aria-labelledby="voting-title">
           <div class="panel-top"><span class="round-label">ROUND ${state.round}</span>
@@ -293,9 +272,11 @@ function renderRoom(): void {
           <p class="people-note">${state.revealed ? 'A fresh round clears every card.' : 'No spoilers. Estimates stay hidden until everyone is ready.'}</p>
         </aside>
       </div>
-      <p class="network-note">Only connected participants count toward the reveal. Anyone can start the next round.
-        Someone who closes their laptop without leaving can take about 6 minutes to drop off the table.<br>${PRIVACY_NOTE}</p>
-    </section>`);
+    </section>`, `
+      ${reconnecting ? '<p class="banner warning" role="status">Connection to ntfy.sh lost. Reconnecting... Updates sent meanwhile may be missed; the room resyncs when the connection returns.</p>' : ''}
+      ${sendError ? `<div class="banner error" role="alert">${escape(sendError)}
+        <button class="button secondary small" id="dismiss-error">Dismiss</button></div>` : ''}
+      ${notice ? `<p class="banner" role="status">${escape(notice)}</p>` : ''}`);
 
   document.querySelectorAll<HTMLButtonElement>('[data-vote]').forEach((button) => {
     button.addEventListener('click', () => {
