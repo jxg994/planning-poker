@@ -1,5 +1,7 @@
 # Planning Poker
 
+**Live site:** <https://jxg994.github.io/planning-poker/>
+
 A static planning poker prototype. Vite bundles the TypeScript app; browsers
 exchange messages through the free public [ntfy.sh](https://ntfy.sh) service.
 There is no application server, database, account, or API key.
@@ -113,6 +115,50 @@ publish 8 messages in total. Leaving costs 1, and a host removing someone costs 
 - Newcomers count toward an unfinished round. If results have already been
   revealed, newcomers wait for the next round. A solo host's vote reveals
   immediately.
+
+## Possible next steps
+
+### Scaling beyond ntfy.sh with AppSync Events and Cognito
+
+ntfy.sh's anonymous limits are counted per IP address, so they're fine for one
+team but can run out when several teams share an office network or VPN. The
+relay could move to
+[AWS AppSync Events](https://docs.aws.amazon.com/appsync/latest/eventapi/event-api-welcome.html),
+a managed publish/subscribe service using WebSockets, without adding user
+sign-in.
+
+- **Transport.** Add an `AppSyncTransport` that implements the existing
+  `Transport` interface in `src/room.ts`, and map each room to a channel such as
+  `/rooms/<CODE>`. The room protocol and state logic don't change. A build-time
+  setting would choose ntfy or AppSync, with ntfy.sh staying the default.
+- **Access without an API key.** An AppSync API key would ship in the public
+  JavaScript bundle, so the app would use guest (unauthenticated) access from a
+  Cognito identity pool instead. Browsers get temporary AWS credentials
+  automatically, and users see no login. The IAM role only allows publishing and
+  subscribing to `/rooms/*`. The only value in the bundle is the identity pool
+  ID, which isn't a secret.
+- **Infrastructure.** A CloudFormation template would define the Event API with
+  IAM authorization, the identity pool with guest access, and the IAM role.
+  AWS WAF per-IP rate limiting could be added to protect against abuse.
+- **Testing.** A local stand-in for the AppSync protocol, like
+  `tests/support/fake-ntfy.ts`, would run the existing browser tests. An optional
+  live smoke test would cover the real service.
+- **Cost.** Billing is per use (approximately $1–2 per million operations plus
+  $0.08 per million connection-minutes, checked October 2026), so a few teams'
+  weekly sessions should cost a few cents a month.
+
+The relay would stay as open as ntfy.sh: anyone who loads the app can get guest
+credentials, and a guessed room code still exposes that room. Optional
+hardening:
+
+- Add a long random token to room links and include it in the channel name.
+- Encrypt messages in the browser with a key carried in the URL fragment, which
+  browsers don't send to servers, so the relay never sees votes.
+
+Before building, confirm that the target AWS account allows a public AppSync
+endpoint with Cognito guest identities. If it doesn't, the alternative is to
+self-host ntfy (for example on an Amazon Lightsail container service, about
+$7/month) and point the app at it.
 
 ## GitHub Pages
 
